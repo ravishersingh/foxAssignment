@@ -10,9 +10,6 @@ import java.util.Properties;
 
 public class Config {
     protected static final Logger log = LogManager.getLogger(Config.class);
-
-    public static String HTTP_SOCKET_TIMEOUT = getProperty("http.socket.timeout");
-
     /**Collection of properties read from the automation properties file.*/
     private static final Properties properties;
     static {
@@ -29,6 +26,8 @@ public class Config {
         properties = tmp;
         tmp = null; // Cleanup
     }
+
+    public static String HTTP_SOCKET_TIMEOUT = getProperty("http.socket.timeout");
 
     public static String getProperty(String key, String defaultValue){
         return ((properties.getProperty(key, defaultValue).isEmpty()) ? defaultValue : properties.getProperty(key, defaultValue));

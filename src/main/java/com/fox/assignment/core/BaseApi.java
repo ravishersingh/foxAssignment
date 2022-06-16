@@ -1,47 +1,49 @@
 package com.fox.assignment.core;
 
-import com.fox.assignment.Config;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import io.restassured.RestAssured;
-import io.restassured.authentication.PreemptiveBasicAuthScheme;
-import io.restassured.builder.RequestSpecBuilder;
-import io.restassured.config.EncoderConfig;
-import io.restassured.config.HttpClientConfig;
-import io.restassured.config.RestAssuredConfig;
-import io.restassured.filter.log.RequestLoggingFilter;
-import io.restassured.filter.log.ResponseLoggingFilter;
 import io.restassured.http.ContentType;
-import io.restassured.parsing.Parser;
 import io.restassured.response.Response;
 import io.restassured.specification.RequestSpecification;
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 
 import static io.restassured.RestAssured.given;
 
-public interface BaseApi {
+public class BaseApi {
     static final Logger log = LogManager.getLogger(BaseApi.class);
 
-    RequestSpecBuilder requestSpecBuilder = new RequestSpecBuilder();
-    MethodType method = null;
-    Object body = null;
-    ContentType contentType=null;
-    String baseUri=null;
-    Map<String, Object> queryParams = new HashMap<String, Object>();
-    Map<String, Object> formURLEncoded = new HashMap<String, Object>();
-    Map<String, Object> params = new HashMap<String, Object>();
-    String basePath=null;
-    String cookie=null;
-    Map<String, Object> headers = new HashMap<String, Object>();
-    Response response=null;
-    String authName=null;
-    String authPassword=null;
+    RequestSpecification spec = RestAssured.given();
+    protected MethodType method = null;
+    protected String body = null;
+    protected Class RequestPojo = null;
+    protected ContentType contentType= ContentType.JSON;;
+    protected String baseUri="https://api3.fox.com/v2.0";
+    protected String basePath=null;
+    protected Map<String, Object> headers = new HashMap<String, Object>();
+    protected Response response=null;
 
-    enum MethodType {
+    {// Setting default values
+        method=MethodType.POST;
+        headers.put("x-api-key", "DEFAULT");
+    }
+
+    protected void setBodyFromJsonFile(String jsonFilePath){
+        try {
+            body = new String(Files.readAllBytes(Paths.get(jsonFilePath)), StandardCharsets.UTF_8);
+        } catch (Exception e){
+            throw new RuntimeException(e);
+        }
+    }
+
+    protected enum MethodType {
         POST, GET, PUT, DELETE, PATCH
     }
 
@@ -49,65 +51,62 @@ public interface BaseApi {
      * Sends the constructed api.
      * @return instance of Response object.
      */
-    default Response execute() {
-        RequestSpecification requestSpecification = requestSpecBuilder.addFilter(new RequestLoggingFilter())
-                .addFilter(new ResponseLoggingFilter()).build();
-        Response response;
-        if (this.authName != null && this.authPassword != null) {
-            PreemptiveBasicAuthScheme basicAuth = new PreemptiveBasicAuthScheme();
-            basicAuth.setUserName(this.authName);
-            basicAuth.setPassword(this.authPassword);
-            requestSpecBuilder.setAuth(basicAuth);
-        }
-        EncoderConfig ec = new EncoderConfig();
-        ec.appendDefaultContentCharsetToContentTypeIfUndefined(false);
-        RestAssured.defaultParser = Parser.JSON;
-        RestAssuredConfig config = getConfig();
-
+    public Response execute() {
+        build(); // Build Request
+        spec.log().all(); // Print Request
         switch (method) {
             case GET:
-                response = given().config(config).spec(requestSpecification).when().get();
+                response = given().spec(spec).when().get();
                 break;
             case POST:
-                response = given().config(config).spec(requestSpecification).when().post();
-                break;
-            case PUT:
-                response = given().config(config).spec(requestSpecification).when().put();
-                break;
-            case DELETE:
-                response = given().config(config).spec(requestSpecification).when().delete();
-                break;
-            case PATCH:
-                response = given().config(config).spec(requestSpecification).when().patch();
+                response = given().spec(spec).when().post();
                 break;
             default:
-                throw new RuntimeException("API method not specified");
+                throw new RuntimeException("API method not specified in framework");
         }
         response = response;
+        System.out.println("Response:");
+        response.prettyPrint(); // Print Response
         return response;
     }
 
-    default Response getResponse(){
+    /**
+     * Get Rest Assured Response after triggering the API
+     * @return
+     */
+    public Response getResponse(){
         return this.response;
     }
 
-    default RestAssuredConfig getConfig(){
-        RequestConfig requestConfig = RequestConfig.custom()
-                .setConnectTimeout(Integer.parseInt(Config.HTTP_SOCKET_TIMEOUT))
-                .setConnectionRequestTimeout(Integer.parseInt(Config.HTTP_SOCKET_TIMEOUT))
-                .setSocketTimeout(Integer.parseInt(Config.HTTP_SOCKET_TIMEOUT))
-                .build();
+    /**
+     * Converts Response Json body to POJO
+     * @param clazz
+     * @param <T>
+     * @return
+     * @throws JsonProcessingException
+     */
+    protected <T> T getResponse(Class<T> clazz) throws IOException {
+        return Jackson.json2pojo(response.getBody().asPrettyString(), clazz);
+    }
 
-        HttpClientConfig httpClientFactory = HttpClientConfig.httpClientConfig()
-                .httpClientFactory(() -> HttpClientBuilder.create()
-                        .setDefaultRequestConfig(requestConfig)
-                        .build());
+    /**
+     * Build the Request for execution.
+     */
+    private void build(){
+        spec.baseUri(baseUri);
+        spec.basePath(basePath);
+        spec.contentType(contentType);
+        spec.headers(headers);
+        spec.body(body);
+    }
 
-        RestAssuredConfig config = RestAssured
-                .config()
-                .httpClient(httpClientFactory);
-        config.encoderConfig(new EncoderConfig().appendDefaultContentCharsetToContentTypeIfUndefined(true));
-        return config;
+    /**
+     * Update Json Request parameters.
+     * @param path JAQL query
+     * @param value
+     */
+    protected void updateRequestBody(String path, String value){
+        body = com.jayway.jsonpath.JsonPath.parse(body).set(path, value).jsonString();
     }
 
 }
